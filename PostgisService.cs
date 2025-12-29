@@ -1,6 +1,6 @@
 ﻿using Npgsql;
 using NetTopologySuite.Geometries;
-using NpgsqlTypes;
+using Npgsql.NetTopologySuite;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -18,9 +18,13 @@ namespace OpenMap
         public async Task<List<Geometry>> GetGeometriesAsync(string sql)
         {
             var result = new List<Geometry>();
-            await using var conn = new NpgsqlConnection(_connectionString);
-            await conn.OpenAsync();
 
+            // Create a data source and configure type mapping
+            var dataSourceBuilder = new NpgsqlDataSourceBuilder(_connectionString);
+            dataSourceBuilder.UseNetTopologySuite();
+            await using var dataSource = dataSourceBuilder.Build();
+
+            await using var conn = await dataSource.OpenConnectionAsync();
             await using var cmd = new NpgsqlCommand(sql, conn);
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
