@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NetTopologySuite" Version="2.6.0" />
+    <PackageReference Include="Npgsql" Version="10.0.1" />
+    <PackageReference Include="Npgsql.NetTopologySuite" Version="10.0.1" />
+    <PackageReference Include="SkiaSharp" Version="3.119.1" />
+    <PackageReference Include="SkiaSharp.Views.WPF" Version="3.119.1" />
+  </ItemGroup>
+
+</Project>
