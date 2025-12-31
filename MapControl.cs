@@ -144,16 +144,51 @@ namespace OpenMap
             canvas.ResetMatrix();
 
             // Draw debug info
-            string debugInfo = DebugInfo(validGeometries, drawnCount, Width, Height, envelope.Width, envelope.Height);
+            string debugInfo = DebugInfo(validGeometries, drawnCount, width, height, envelope.Width, envelope.Height, _translate.X, _translate.Y, _scale);
             DrawDebugText(canvas, debugInfo);
             Debug.WriteLine($"Rendered {drawnCount} geometries successfully");
         }
 
-        private string DebugInfo(int _validGeometries, int _drawnCount, double _Width, double _Height, double _envelopeWidth, double _envelopeHeight)
+        private double MaxCoordinate(int _position, Geometry _geom)
         {
+            double max = 0;
+            foreach (var vertex in _geom.Coordinates)
+            {
+                if (vertex != null && vertex[_position] >= max)
+                {
+                    max = vertex[_position];
+                }
+            }
+            return max;
+        }
+
+        private double MinCoordinate(int _position, Geometry _geom)
+        {
+            double min = 0;
+            foreach (var vertex in _geom.Coordinates)
+            {
+                if (vertex != null && vertex[_position] <= min)
+                {
+                    min = vertex[_position];
+                }
+            }
+            return min;
+        }
+
+        private string DebugInfo(int _validGeometries, int _drawnCount, double _Width, double _Height, double _envelopeWidth, 
+            double _envelopeHeight, float _translateX, float _translateY, float _scale)
+        {
+            double mapUnitsPerPixel;
+
+            mapUnitsPerPixel = _scale * _Width / _envelopeWidth;
+
             string _debugInfo = $"Geometries: {_validGeometries} valid, {_drawnCount} drawn\n" +
-                             $"Viewport: {_Width}x{_Height}\n" +
-                             $"Bounds: {_envelopeWidth:F2}x{_envelopeHeight:F2}";
+                             $"Geometry Envelope: {_envelopeWidth:F2}x{_envelopeHeight:F2} SR units\n" +
+                             $"Viewport: {_Width}x{_Height} pixels\n" +
+                             $"_translate.X: {_translateX}\n" +
+                             $"_translate.Y: {_translateY}\n" +
+                             $"_scale: {_scale} \n" +
+                             $"mapUnitsPerPixel : {mapUnitsPerPixel}";
             return _debugInfo;
         }
 
@@ -216,12 +251,6 @@ namespace OpenMap
                 _lastMousePosition = currentMousePosition;
                 _viewMatrix = SKMatrix.CreateScaleTranslation(_scale, _scale, _translate.X, _translate.Y);
                 InvalidateVisual();
-
-                // refresh debug text
-                //string debugInfo = DebugInfo(1, 1, Width, Height, 1, 1);
-                //var canvas = e2.Surface.Canvas;
-                //DrawDebugText(canvas, debugInfo);
-                //Debug.WriteLine($"Rendered {1} geometries successfully");
             }
         }
 
@@ -287,10 +316,16 @@ namespace OpenMap
 
             float scaleX = controlWidth / (float)envelope.Width;
             float scaleY = controlHeight / (float)envelope.Height;
+            Debug.WriteLine($"scaleX:{scaleX}");
+            Debug.WriteLine($"scaleX:{scaleY}");
             float scale = Math.Min(scaleX, scaleY);
 
             float offsetX = (float)-envelope.MinX;
             float offsetY = (float)-envelope.MinY;
+            Debug.WriteLine($"envelope.MinX: {envelope.MinX}");
+            Debug.WriteLine($"envelope.MinY: {envelope.MinY}");
+            Debug.WriteLine($"offsetx: {offsetX}");
+            Debug.WriteLine($"offsety: {offsetY}");
 
             return SKMatrix.CreateScale(scale, scale)
                    .PostConcat(SKMatrix.CreateTranslation(offsetX * scale, offsetY * scale));
