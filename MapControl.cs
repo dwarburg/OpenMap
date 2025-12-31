@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Collections.Generic;
 using System.Linq;
 using NetTopologySuite.Geometries;
+using System.Diagnostics;
 
 namespace OpenMap
 {
@@ -22,8 +23,10 @@ namespace OpenMap
             // Attach event handlers for mouse interactions
             this.MouseWheel += OnMouseWheel;
             this.MouseMove += OnMouseMove;
-            this.MouseDown += OnMouseDown;
-            this.MouseUp += OnMouseUp;
+            this.MouseLeftButtonDown += OnMouseLeftButtonDown;
+            this.MouseRightButtonDown += OnMouseRightButtonDown;
+            this.MouseLeftButtonUp += OnMouseLeftButtonUp;
+            this.MouseRightButtonUp += OnMouseRightButtonUp;
             this.MouseLeave += OnMouseLeave;
         }
 
@@ -46,7 +49,7 @@ namespace OpenMap
             {
                 width = e.Info.Width;
                 height = e.Info.Height;
-                if (width <= 0 || height <= 0)
+                if (width <= 0 || height <= 0 || float.IsNaN(width) || float.IsNaN(height))
                 {
                     width = 800;  // Default fallback width
                     height = 600; // Default fallback height
@@ -65,7 +68,7 @@ namespace OpenMap
                 return;
             }
 
-            Console.WriteLine($"Rendering {_geometries.Count()} geometries...");
+            Debug.WriteLine($"Rendering {_geometries.Count()} geometries...");
 
             // Calculate the bounding box of all geometries
             var envelope = new Envelope();
@@ -77,7 +80,7 @@ namespace OpenMap
                 {
                     envelope.ExpandToInclude(geometry.EnvelopeInternal);
                     validGeometries++;
-                    Console.WriteLine($"Geometry: Type={geometry.GeometryType}, SRID={geometry.SRID}, Points={geometry.NumPoints}, Bounds={geometry.EnvelopeInternal}");
+                    Debug.WriteLine($"Geometry: Type={geometry.GeometryType}, SRID={geometry.SRID}, Points={geometry.NumPoints}, Bounds={geometry.EnvelopeInternal}");
                 }
             }
 
@@ -92,7 +95,7 @@ namespace OpenMap
             {
                 // If envelope is invalid, use a default view
                 envelope = new Envelope(-180, 180, -90, 90); // Default world bounds
-                Console.WriteLine("Using default envelope due to invalid geometry bounds");
+                Debug.WriteLine("Using default envelope due to invalid geometry bounds");
             }
 
             // Use actual surface size
@@ -133,7 +136,7 @@ namespace OpenMap
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error rendering geometry: {ex.Message}");
+                    Debug.WriteLine($"Error rendering geometry: {ex.Message}");
                 }
             }
 
@@ -141,54 +144,60 @@ namespace OpenMap
             canvas.ResetMatrix();
 
             // Draw debug info
-            string debugInfo = $"Geometries: {validGeometries} valid, {drawnCount} drawn\n" +
-                             $"Viewport: {Width}x{Height}\n" +
-                             $"Bounds: {envelope.Width:F2}x{envelope.Height:F2}";
-
+            string debugInfo = DebugInfo(validGeometries, drawnCount, Width, Height, envelope.Width, envelope.Height);
             DrawDebugText(canvas, debugInfo);
-            Console.WriteLine($"Rendered {drawnCount} geometries successfully");
+            Debug.WriteLine($"Rendered {drawnCount} geometries successfully");
+        }
+
+        private string DebugInfo(int _validGeometries, int _drawnCount, double _Width, double _Height, double _envelopeWidth, double _envelopeHeight)
+        {
+            string _debugInfo = $"Geometries: {_validGeometries} valid, {_drawnCount} drawn\n" +
+                             $"Viewport: {_Width}x{_Height}\n" +
+                             $"Bounds: {_envelopeWidth:F2}x{_envelopeHeight:F2}";
+            return _debugInfo;
         }
 
         private static void DrawDebugText(SKCanvas canvas, string text)
-{
-    // Create a font instead of using TextSize on SKPaint
-    using var font = new SKFont
-    {
-        Size = 14,
-        Typeface = SKTypeface.Default
-    };
+        {
+            // Create a font instead of using TextSize on SKPaint
+            using var font = new SKFont
+            {
+                Size = 14,
+                Typeface = SKTypeface.Default
+            };
 
-    using var textPaint = new SKPaint
-    {
-        Color = SKColors.Black,
-        IsAntialias = true
-    };
+            using var textPaint = new SKPaint
+            {
+                Color = SKColors.Black,
+                IsAntialias = true
+            };
 
-    // Draw a semi-transparent background for the text
-    using var bgPaint = new SKPaint
-    {
-        Color = new SKColor(255, 255, 255, 200),
-        Style = SKPaintStyle.Fill
-    };
+            // Draw a semi-transparent background for the text
+            using var bgPaint = new SKPaint
+            {
+                Color = new SKColor(255, 255, 255, 200),
+                Style = SKPaintStyle.Fill
+            };
 
-    // Split text into lines
-    var lines = text.Split('\n');
-    float lineHeight = font.Size * 1.2f;
-    float y = 10 + lineHeight;
+            // Split text into lines
+            var lines = text.Split('\n');
+            float lineHeight = font.Size * 1.2f;
+            float y = 10 + lineHeight;
 
-    foreach (var line in lines)
-    {
-        // Get text bounds without using ref
-        float textWidth = font.MeasureText(line, textPaint);
+            foreach (var line in lines)
+            {
+                // Get text bounds without using ref
+                float textWidth = font.MeasureText(line, textPaint);
         
-        // Draw background
-        canvas.DrawRect(5, y - font.Size, textWidth + 10, lineHeight, bgPaint);
+                // Draw background
+                canvas.DrawRect(5, y - font.Size, textWidth + 10, lineHeight, bgPaint);
 
-        // Draw text using the font
-        canvas.DrawText(line, 10, y, font, textPaint);
-        y += lineHeight;
-    }
-}
+                // Draw text using the font
+                canvas.DrawText(line, 10, y, font, textPaint);
+                y += lineHeight;
+            }
+        }
+
         private void OnMouseWheel(object sender, MouseWheelEventArgs e)
         {
             var zoomFactor = e.Delta > 0 ? 1.1f : 0.9f;
@@ -199,31 +208,62 @@ namespace OpenMap
 
         private void OnMouseMove(object sender, MouseEventArgs e)
         {
-            if (_isPanning && e.LeftButton == MouseButtonState.Pressed)
+            if (_isPanning && (e.LeftButton == MouseButtonState.Pressed || e.RightButton == MouseButtonState.Pressed) )
             {
                 var currentMousePosition = e.GetPosition(this).ToSKPoint();
                 var delta = currentMousePosition - _lastMousePosition;
                 _translate += delta;
                 _lastMousePosition = currentMousePosition;
-                _viewMatrix = SKMatrix.CreateTranslation(_translate.X, _translate.Y);
+                _viewMatrix = SKMatrix.CreateScaleTranslation(_scale, _scale, _translate.X, _translate.Y);
                 InvalidateVisual();
+
+                // refresh debug text
+                //string debugInfo = DebugInfo(1, 1, Width, Height, 1, 1);
+                //var canvas = e2.Surface.Canvas;
+                //DrawDebugText(canvas, debugInfo);
+                //Debug.WriteLine($"Rendered {1} geometries successfully");
             }
         }
 
-        private void OnMouseDown(object sender, MouseButtonEventArgs e)
+        private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.LeftButton == MouseButtonState.Pressed)
             {
                 _isPanning = true;
                 _lastMousePosition = e.GetPosition(this).ToSKPoint();
+                Debug.WriteLine("Left Button Pressed");
+                Debug.WriteLine(_isPanning);
             }
         }
 
-        private void OnMouseUp(object sender, MouseButtonEventArgs e)
+        private void OnMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.RightButton == MouseButtonState.Pressed)
+            {
+                _isPanning = true;
+                _lastMousePosition = e.GetPosition(this).ToSKPoint();
+                Debug.WriteLine("Right Button Pressed");
+                Debug.WriteLine(_isPanning);
+            }
+        }
+
+        private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (e.LeftButton == MouseButtonState.Released)
             {
                 _isPanning = false;
+                Debug.WriteLine("Left Button Released");
+                Debug.WriteLine(_isPanning);
+            }
+        }
+
+        private void OnMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (e.RightButton == MouseButtonState.Released)
+            {
+                _isPanning = false;
+                Debug.WriteLine("Right Button Released");
+                Debug.WriteLine(_isPanning);
             }
         }
 

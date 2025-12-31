@@ -1,6 +1,7 @@
 using System.Configuration;
 using System.Windows;
 using Microsoft.Extensions.Configuration;
+using System.Diagnostics;
 
 namespace OpenMap
 {
@@ -37,22 +38,22 @@ namespace OpenMap
                 if (string.IsNullOrEmpty(connectionString))
                 {
                     var errorMsg = "Connection string for 'Postgis' is not configured in appsettings.json or user secrets.";
-                    Console.WriteLine(errorMsg);
+                    Debug.WriteLine(errorMsg);
                     MessageBox.Show(errorMsg, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
-                Console.WriteLine($"Successfully retrieved connection string: {connectionString.Substring(0, Math.Min(30, connectionString.Length))}...");
+                Debug.WriteLine($"Successfully retrieved connection string: {connectionString.Substring(0, Math.Min(30, connectionString.Length))}...");
 
                 var postgisService = new PostgisService(connectionString);
                 string query = "SELECT geom FROM line_features_1 LIMIT 1000;";
-                Console.WriteLine($"Executing query: {query}");
+                Debug.WriteLine($"Executing query: {query}");
                 
                 var geometries = await postgisService.GetGeometriesAsync(query);
-                Console.WriteLine($"Retrieved {geometries.Count} geometries from the database.");
+                Debug.WriteLine($"Retrieved {geometries.Count} geometries from the database.");
                 
                 if (geometries.Count == 0)
                 {
-                    Console.WriteLine("Warning: No geometries were returned from the database.");
+                    Debug.WriteLine("Warning: No geometries were returned from the database.");
                     MessageBox.Show("No geometries were found in the database table 'line_features_1'.", "Warning", 
                                   MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
@@ -62,7 +63,7 @@ namespace OpenMap
                 for (int i = 0; i < Math.Min(3, geometries.Count); i++)
                 {
                     var geom = geometries[i];
-                    Console.WriteLine($"Geometry {i + 1}: Type={geom.GeometryType}, SRID={geom.SRID}, " +
+                    Debug.WriteLine($"Geometry {i + 1}: Type={geom.GeometryType}, SRID={geom.SRID}, " +
                                     $"Points={geom.NumPoints}, Bounds={geom.EnvelopeInternal}");
                 }
 
@@ -71,15 +72,15 @@ namespace OpenMap
                 {
                     _viewModel.Geometries.Add(geometry);
                 }
-                Console.WriteLine($"Added {_viewModel.Geometries.Count} geometries to the view model.");
+                Debug.WriteLine($"Added {_viewModel.Geometries.Count} geometries to the view model.");
                 
                 Map.UpdateGeometries(_viewModel.Geometries); // Notify MapControl to update
-                Console.WriteLine("Map control update triggered.");
+                Debug.WriteLine("Map control update triggered.");
             }
             catch (Exception ex)
             {
                 string errorMsg = $"Error loading geometries: {ex.Message}\n\n{ex.StackTrace}";
-                Console.WriteLine(errorMsg);
+                Debug.WriteLine(errorMsg);
                 MessageBox.Show($"An error occurred while loading geometries: {ex.Message}", 
                               "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
