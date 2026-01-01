@@ -17,6 +17,20 @@ namespace OpenMap
         private float _scale = 1.0f; // Zoom level
         private SKPoint _translate = new(0, 0); // Pan offset
         private IEnumerable<Geometry>? _geometries; // Store geometries
+        
+        // Line drawing state
+        private bool _isDrawing = false;
+        private bool _isPanning = false;
+        private SKPoint _lastMousePosition;
+        private List<Coordinate> _currentLineVertices = new();
+        private readonly SKPaint _drawingPaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            Color = SKColors.Red,
+            StrokeWidth = 2,
+            IsAntialias = true,
+            PathEffect = SKPathEffect.CreateDash(new float[] { 10, 5 }, 0)
+        };
 
         public MapControl()
         {
@@ -31,8 +45,6 @@ namespace OpenMap
         }
 
         // Mouse interaction state
-        private bool _isPanning = false;
-        private SKPoint _lastMousePosition;
 
         protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
         {
@@ -106,6 +118,27 @@ namespace OpenMap
             var transformMatrix = CalculateTransform(envelope, controlWidth, controlHeight);
             var finalMatrix = transformMatrix.PreConcat(_viewMatrix);
             canvas.SetMatrix(finalMatrix);
+
+            // Draw the current line being drawn
+            if (_isDrawing && _currentLineVertices.Count > 0)
+            {
+                using var path = new SKPath();
+                var first = true;
+                foreach (var vertex in _currentLineVertices)
+                {
+                    var point = new SKPoint((float)vertex.X, (float)vertex.Y);
+                    if (first)
+                    {
+                        path.MoveTo(point);
+                        first = false;
+                    }
+                    else
+                    {
+                        path.LineTo(point);
+                    }
+                }
+                canvas.DrawPath(path, _drawingPaint);
+            }
 
             // Draw the geometries with different colors based on type
             int drawnCount = 0;
@@ -243,25 +276,54 @@ namespace OpenMap
 
         private void OnMouseMove(object sender, MouseEventArgs e)
         {
-            if (_isPanning && (e.LeftButton == MouseButtonState.Pressed || e.RightButton == MouseButtonState.Pressed) )
+            var currentMousePosition = e.GetPosition(this).ToSKPoint();
+            
+            if (_isPanning && (e.LeftButton == MouseButtonState.Pressed || e.RightButton == MouseButtonState.Pressed))
             {
-                var currentMousePosition = e.GetPosition(this).ToSKPoint();
                 var delta = currentMousePosition - _lastMousePosition;
                 _translate += delta;
                 _lastMousePosition = currentMousePosition;
                 _viewMatrix = SKMatrix.CreateScaleTranslation(_scale, _scale, _translate.X, _translate.Y);
                 InvalidateVisual();
             }
+            else if (_isDrawing)
+            {
+                // Update the visual feedback of the line being drawn
+                InvalidateVisual();
+            }
         }
 
         private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (e.LeftButton == MouseButtonState.Pressed)
+            if (_isDrawing && e.LeftButton == MouseButtonState.Pressed)
+            {
+                // Complete the line
+                _isDrawing = false;
+                
+                if (_currentLineVertices.Count >= 2)
+                {
+                    // Create a LineString from the vertices
+                    var lineString = new LineString(_currentLineVertices.ToArray());
+                    
+                    // Save to PostGIS (this will need to be implemented)
+                    // _ = SaveLineToPostGIS(lineString);
+                    
+                    // Add the new line to the geometries collection
+                    var geometriesList = _geometries?.ToList() ?? new List<Geometry>();
+                    geometriesList.Add(lineString);
+                    _geometries = geometriesList;
+                    
+                    // Clear the current line
+                    _currentLineVertices.Clear();
+                    
+                    // Refresh the map to show the new line
+                    InvalidateVisual();
+                }
+            }
+            else if (e.LeftButton == MouseButtonState.Pressed)
             {
                 _isPanning = true;
                 _lastMousePosition = e.GetPosition(this).ToSKPoint();
-                Debug.WriteLine("Left Button Pressed");
-                Debug.WriteLine(_isPanning);
             }
         }
 
@@ -269,10 +331,25 @@ namespace OpenMap
         {
             if (e.RightButton == MouseButtonState.Pressed)
             {
-                _isPanning = true;
-                _lastMousePosition = e.GetPosition(this).ToSKPoint();
-                Debug.WriteLine("Right Button Pressed");
-                Debug.WriteLine(_isPanning);
+                var point = e.GetPosition(this).ToSKPoint();
+                var mapPoint = ScreenToMap(point);
+                
+                if (!_isDrawing)
+                {
+                    // Start a new line
+                    _isDrawing = true;
+                    _currentLineVertices.Clear();
+                    _currentLineVertices.Add(new Coordinate(mapPoint.X, mapPoint.Y));
+                    Debug.WriteLine("Started new line");
+                }
+                else
+                {
+                    // Add a new vertex to the current line
+                    _currentLineVertices.Add(new Coordinate(mapPoint.X, mapPoint.Y));
+                    Debug.WriteLine($"Added vertex: {mapPoint}");
+                }
+                
+                InvalidateVisual();
             }
         }
 
@@ -281,8 +358,6 @@ namespace OpenMap
             if (e.LeftButton == MouseButtonState.Released)
             {
                 _isPanning = false;
-                Debug.WriteLine("Left Button Released");
-                Debug.WriteLine(_isPanning);
             }
         }
 
@@ -291,9 +366,14 @@ namespace OpenMap
             if (e.RightButton == MouseButtonState.Released)
             {
                 _isPanning = false;
-                Debug.WriteLine("Right Button Released");
-                Debug.WriteLine(_isPanning);
             }
+        }
+
+        private SKPoint ScreenToMap(SKPoint screenPoint)
+        {
+            // Convert screen coordinates to map coordinates
+            var inverseMatrix = _viewMatrix.Invert();
+            return inverseMatrix.MapPoint(screenPoint);
         }
 
         private void OnMouseLeave(object sender, MouseEventArgs e)
