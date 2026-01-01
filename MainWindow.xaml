@@ -6,7 +6,6 @@
         xmlns:local="clr-namespace:OpenMap"
         mc:Ignorable="d"
         Title="OpenMap GIS Viewer" Height="600" Width="900">
-    <Grid>
-        <local:MapControl x:Name="Map" />
+    <Grid x:Name="MainGrid">
     </Grid>
 </Window>

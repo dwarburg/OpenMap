@@ -25,6 +25,7 @@ namespace OpenMap
         private bool _isPanning = false;
         private SKPoint _lastMousePosition;
         private List<Coordinate> _currentLineVertices = new();
+        private readonly PostgisService _postgisService;
         private readonly SKPaint _drawingPaint = new SKPaint
         {
             Style = SKPaintStyle.Stroke,
@@ -34,8 +35,10 @@ namespace OpenMap
             PathEffect = SKPathEffect.CreateDash(new float[] { 10, 5 }, 0)
         };
 
-        public MapControl()
+        public MapControl(string connectionString)
         {
+            _postgisService = new PostgisService(connectionString);
+            
             // Attach event handlers for mouse interactions
             this.MouseWheel += OnMouseWheel;
             this.MouseMove += OnMouseMove;
@@ -306,8 +309,31 @@ namespace OpenMap
                 InvalidateVisual();
             }
         }
-
-        private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private async Task SaveLineToPostGIS(LineString _lineString)
+        {
+            // Implement the logic to save the line to PostGIS
+            // By Calling SaveGeometryAsync. 
+            try
+            {
+                Debug.WriteLine($"Attempting to save line with {_lineString.Coordinates.Count()} coordinates to PostGIS...");
+                var success = await _postgisService.SaveGeometryAsync(_lineString, "line_features_1", "geom", 26918);
+                
+                if (success)
+                {
+                    Debug.WriteLine($"Successfully saved line with {_lineString.Coordinates.Count()} coordinates to PostGIS");
+                }
+                else
+                {
+                    Debug.WriteLine($"Failed to save line to PostGIS - SaveGeometryAsync returned false");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Exception in SaveLineToPostGIS: {ex.Message}");
+                Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
+        }
+        private async void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (_isDrawing && e.LeftButton == MouseButtonState.Pressed)
             {
@@ -319,8 +345,8 @@ namespace OpenMap
                     // Create a LineString from the vertices
                     var lineString = new LineString(_currentLineVertices.ToArray());
                     
-                    // Save to PostGIS (this will need to be implemented)
-                    // _ = SaveLineToPostGIS(lineString);
+                    // Save to PostGIS
+                    await SaveLineToPostGIS(lineString);
                     
                     // Add the new line to the geometries collection
                     var geometriesList = _geometries?.ToList() ?? new List<Geometry>();

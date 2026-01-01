@@ -49,10 +49,16 @@ namespace OpenMap
         public async Task<bool> SaveGeometryAsync(Geometry geometry, string tableName, string geometryColumn = "geom", int srid = 4326)
         {
             if (geometry == null)
+            {
+                System.Diagnostics.Debug.WriteLine("SaveGeometryAsync: geometry is null");
                 return false;
+            }
 
             try
             {
+                System.Diagnostics.Debug.WriteLine($"SaveGeometryAsync: Starting save to table '{tableName}', column '{geometryColumn}'");
+                System.Diagnostics.Debug.WriteLine($"SaveGeometryAsync: Geometry type: {geometry.GeometryType}, SRID: {geometry.SRID}");
+                
                 // Create a data source and configure type mapping
                 var dataSourceBuilder = new NpgsqlDataSourceBuilder(_connectionString);
                 dataSourceBuilder.UseNetTopologySuite();
@@ -62,10 +68,12 @@ namespace OpenMap
                 if (geometry.SRID == 0)
                 {
                     geometry.SRID = srid;
+                    System.Diagnostics.Debug.WriteLine($"SaveGeometryAsync: Set SRID to {srid}");
                 }
 
                 // Create the INSERT command
                 var sql = $"INSERT INTO \"{tableName}\" (\"{geometryColumn}\") VALUES (@geom) RETURNING id";
+                System.Diagnostics.Debug.WriteLine($"SaveGeometryAsync: Executing SQL: {sql}");
                 
                 await using var conn = await dataSource.OpenConnectionAsync();
                 await using var cmd = new NpgsqlCommand(sql, conn);
@@ -75,11 +83,17 @@ namespace OpenMap
                 
                 // Execute the command
                 var result = await cmd.ExecuteScalarAsync();
-                return result != null;
+                var success = result != null;
+                
+                System.Diagnostics.Debug.WriteLine($"SaveGeometryAsync: ExecuteScalar result: {result}");
+                System.Diagnostics.Debug.WriteLine($"SaveGeometryAsync: Save operation {(success ? "succeeded" : "failed")}");
+                
+                return success;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error saving geometry to PostGIS: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error details: {ex}");
                 return false;
             }
         }

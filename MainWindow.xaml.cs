@@ -1,5 +1,6 @@
 using System.Configuration;
 using System.Windows;
+using System.Windows.Controls;
 using Microsoft.Extensions.Configuration;
 using System.Diagnostics;
 
@@ -12,6 +13,7 @@ namespace OpenMap
     {
         private readonly MapViewModel _viewModel;
         private readonly IConfiguration _configuration;
+        private MapControl? mapControl;
 
         public MainWindow()
         {
@@ -25,6 +27,20 @@ namespace OpenMap
                 .AddUserSecrets<MainWindow>() // Add user secrets
                 .Build();
 
+            // Initialize MapControl with connection string
+            var connectionString = _configuration.GetConnectionString("Postgis");
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                var errorMsg = "Connection string for 'Postgis' is not configured in appsettings.json or user secrets.";
+                Debug.WriteLine(errorMsg);
+                MessageBox.Show(errorMsg, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            
+            // Create new MapControl instance with connection string
+            mapControl = new MapControl(connectionString);
+            MainGrid.Children.Add(mapControl);
+            
             // Fetch geometries and update the map
             LoadGeometries();
         }
@@ -74,7 +90,10 @@ namespace OpenMap
                 }
                 Debug.WriteLine($"Added {_viewModel.Geometries.Count} geometries to the view model.");
                 
-                Map.UpdateGeometries(_viewModel.Geometries); // Notify MapControl to update
+                if (mapControl != null)
+                {
+                    mapControl.UpdateGeometries(_viewModel.Geometries); // Notify MapControl to update
+                }
                 Debug.WriteLine("Map control update triggered.");
             }
             catch (Exception ex)
