@@ -17,6 +17,8 @@ namespace OpenMap
         private float _scale = 1.0f; // Zoom level
         private SKPoint _translate = new(0, 0); // Pan offset
         private IEnumerable<Geometry>? _geometries; // Store geometries
+        private SKMatrix _baseTransform = SKMatrix.CreateIdentity(); // Envelope-to-screen transformation
+        private Envelope _currentEnvelope = new Envelope(); // Current geometry envelope
         
         // Line drawing state
         private bool _isDrawing = false;
@@ -114,12 +116,13 @@ namespace OpenMap
             var controlWidth = (float)e.Info.Width;
             var controlHeight = (float)e.Info.Height;
 
-            // Calculate the transformation matrix;
-            var transformMatrix = CalculateTransform(envelope, controlWidth, controlHeight);
-            var finalMatrix = transformMatrix.PreConcat(_viewMatrix);
+            // Calculate the transformation matrix
+            _baseTransform = CalculateTransform(envelope, controlWidth, controlHeight);
+            _currentEnvelope = envelope;
+            var finalMatrix = _baseTransform.PreConcat(_viewMatrix);
             canvas.SetMatrix(finalMatrix);
 
-            // Draw the current line being drawn
+            // Draw the current line being drawn (apply same transformation as other geometries)
             if (_isDrawing && _currentLineVertices.Count > 0)
             {
                 using var path = new SKPath();
@@ -138,6 +141,7 @@ namespace OpenMap
                     }
                 }
                 canvas.DrawPath(path, _drawingPaint);
+                Debug.WriteLine($"Drawing current line with {_currentLineVertices.Count} vertices");
             }
 
             // Draw the geometries with different colors based on type
@@ -270,7 +274,13 @@ namespace OpenMap
         {
             var zoomFactor = e.Delta > 0 ? 1.1f : 0.9f;
             _scale *= zoomFactor;
-            _viewMatrix = SKMatrix.CreateScale(_scale, _scale, _translate.X, _translate.Y);
+            
+            // Update view matrix with new scale, keeping the same translation
+            _viewMatrix = SKMatrix.CreateScale(_scale, _scale)
+                          .PostConcat(SKMatrix.CreateTranslation(_translate.X, _translate.Y));
+            
+            Debug.WriteLine($"Zoom: newScale={_scale:F6}, translate=({_translate.X:F2}, {_translate.Y:F2})");
+            
             InvalidateVisual();
         }
 
@@ -283,7 +293,11 @@ namespace OpenMap
                 var delta = currentMousePosition - _lastMousePosition;
                 _translate += delta;
                 _lastMousePosition = currentMousePosition;
-                _viewMatrix = SKMatrix.CreateScaleTranslation(_scale, _scale, _translate.X, _translate.Y);
+                
+                // Update view matrix with new translation
+                _viewMatrix = SKMatrix.CreateScale(_scale, _scale)
+                              .PostConcat(SKMatrix.CreateTranslation(_translate.X, _translate.Y));
+                
                 InvalidateVisual();
             }
             else if (_isDrawing)
@@ -340,13 +354,13 @@ namespace OpenMap
                     _isDrawing = true;
                     _currentLineVertices.Clear();
                     _currentLineVertices.Add(new Coordinate(mapPoint.X, mapPoint.Y));
-                    Debug.WriteLine("Started new line");
+                    Debug.WriteLine($"Started new line at map coordinates: ({mapPoint.X:F6}, {mapPoint.Y:F6})");
                 }
                 else
                 {
                     // Add a new vertex to the current line
                     _currentLineVertices.Add(new Coordinate(mapPoint.X, mapPoint.Y));
-                    Debug.WriteLine($"Added vertex: {mapPoint}");
+                    Debug.WriteLine($"Added vertex at map coordinates: ({mapPoint.X:F6}, {mapPoint.Y:F6})");
                 }
                 
                 InvalidateVisual();
@@ -371,9 +385,31 @@ namespace OpenMap
 
         private SKPoint ScreenToMap(SKPoint screenPoint)
         {
-            // Convert screen coordinates to map coordinates
-            var inverseMatrix = _viewMatrix.Invert();
-            return inverseMatrix.MapPoint(screenPoint);
+            // Get the complete transformation matrix (base + view)
+            var completeMatrix = _baseTransform.PreConcat(_viewMatrix);
+            
+            // Convert screen coordinates to map coordinates by inverting the complete matrix
+            var inverseMatrix = completeMatrix.Invert();
+            if (inverseMatrix.IsIdentity)
+            {
+                // Fallback if inversion fails
+                Debug.WriteLine("Warning: Matrix inversion failed, using fallback transformation");
+                return screenPoint;
+            }
+            
+            var mapPoint = inverseMatrix.MapPoint(screenPoint);
+            Debug.WriteLine($"ScreenToMap: Screen({screenPoint.X:F2}, {screenPoint.Y:F2}) -> Map({mapPoint.X:F6}, {mapPoint.Y:F6})");
+            return mapPoint;
+        }
+
+        private SKPoint MapToScreen(SKPoint mapPoint)
+        {
+            // Get the complete transformation matrix (base + view)
+            var completeMatrix = _baseTransform.PreConcat(_viewMatrix);
+            
+            // Convert map coordinates to screen coordinates
+            var screenPoint = completeMatrix.MapPoint(mapPoint);
+            return screenPoint;
         }
 
         private void OnMouseLeave(object sender, MouseEventArgs e)
@@ -384,6 +420,12 @@ namespace OpenMap
         public void UpdateGeometries(IEnumerable<Geometry> geometries)
         {
             _geometries = geometries;
+            
+            // Reset view transformation when new geometries are loaded
+            _scale = 1.0f;
+            _translate = new SKPoint(0, 0);
+            _viewMatrix = SKMatrix.CreateIdentity();
+            
             InvalidateVisual();
         }
 
@@ -394,21 +436,31 @@ namespace OpenMap
                 return SKMatrix.CreateIdentity();
             }
 
-            float scaleX = controlWidth / (float)envelope.Width;
-            float scaleY = controlHeight / (float)envelope.Height;
-            Debug.WriteLine($"scaleX:{scaleX}");
-            Debug.WriteLine($"scaleX:{scaleY}");
+            // Calculate scale to fit envelope in control with some padding
+            float padding = 20f; // 20 pixels padding
+            float scaleX = (controlWidth - 2 * padding) / (float)envelope.Width;
+            float scaleY = (controlHeight - 2 * padding) / (float)envelope.Height;
+            
             float scale = Math.Min(scaleX, scaleY);
+            
+            // If scale is invalid, use a reasonable default
+            if (float.IsNaN(scale) || float.IsInfinity(scale) || scale <= 0)
+            {
+                scale = 1.0f;
+            }
 
-            float offsetX = (float)-envelope.MinX;
-            float offsetY = (float)-envelope.MinY;
-            Debug.WriteLine($"envelope.MinX: {envelope.MinX}");
-            Debug.WriteLine($"envelope.MinY: {envelope.MinY}");
-            Debug.WriteLine($"offsetx: {offsetX}");
-            Debug.WriteLine($"offsety: {offsetY}");
+            // Calculate centering offsets
+            float scaledWidth = (float)envelope.Width * scale;
+            float scaledHeight = (float)envelope.Height * scale;
+            
+            float offsetX = (controlWidth - scaledWidth) / 2f - (float)envelope.MinX * scale;
+            float offsetY = (controlHeight - scaledHeight) / 2f - (float)envelope.MinY * scale;
+
+            Debug.WriteLine($"Transform: scale={scale:F6}, offsetX={offsetX:F2}, offsetY={offsetY:F2}");
+            Debug.WriteLine($"Envelope: {envelope.MinX:F6},{envelope.MinY:F6} to {envelope.MaxX:F6},{envelope.MaxY:F6}");
 
             return SKMatrix.CreateScale(scale, scale)
-                   .PostConcat(SKMatrix.CreateTranslation(offsetX * scale, offsetY * scale));
+                   .PostConcat(SKMatrix.CreateTranslation(offsetX, offsetY));
         }
     }
 
